@@ -7,4 +7,5 @@ import java.net.URL
   */
 sealed abstract class Message()
 
-case class Start(url: URL)
+case class Start()
+case class Explore(url: URL)
