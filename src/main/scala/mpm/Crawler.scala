@@ -11,7 +11,7 @@ import akka.http.scaladsl.model._
 import akka.stream.ActorMaterializer
 import org.jsoup.nodes.{Element, Document}
 import scala.concurrent.{ExecutionContext, Future}
-import scala.collection.JavaConverters._
+import scala.collection.JavaConversions._
 /**
   * Created by Michael on 20/07/2016.
   */
@@ -47,7 +47,7 @@ class Crawler extends Actor{
       futureBody.map{ body =>
         val doc = Jsoup.parse(body)
 
-        val elements = doc.select("a").asScala.toList
+        val elements = doc.select("a").toList
 
         elements.map( el => println(el.attr("href")))
 
