@@ -14,7 +14,8 @@ import akka.actor.ActorLogging
 object Main {
 
   def main(args: Array[String]): Unit = {
-    val domain = new URL(args.head)
+    val domain = new URL(clean(args.head))
+
 
     val system = ActorSystem("Crawler")
 
@@ -23,4 +24,11 @@ object Main {
     crawler ! Start()
   }
 
+  def clean(url: String) = url match{
+    case matchUrl if matchUrl.endsWith("/") => matchUrl.dropRight(1)
+    case _ => url
+  }
+
 }
+
+

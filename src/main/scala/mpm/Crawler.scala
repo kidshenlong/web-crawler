@@ -13,6 +13,7 @@ import akka.stream.ActorMaterializer
 import mpm.Domain.Resource
 import org.json4s.DefaultFormats
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 
 import scala.collection.JavaConversions._
 import scala.concurrent.{ExecutionContext, Future}
@@ -74,39 +75,52 @@ class Crawler(startUrl: URL) extends Actor{
     queue = queue + 1
 
 
-    makeHttpRequest(url).map{ body =>
-
+    makeHttpRequest(url).flatMap{ body =>
       println(s"[info] Scraping ${url.toString} complete!")
-
       queue = queue - 1
 
-      val doc = Jsoup.parse(body)
-
-      val linkElements = doc.select("a").toList
-      val linkElementsHref = linkElements.map(_.attr("href"))
-
-      val filteredLinks = linkElementsHref.filter(isInternalLink)
-        .map(makeAbsolute)
-        .map(cleanLink)
-
-      val imgElements = doc.select("img[src]").toList
-      val imgElementsSrc = imgElements.map(_.absUrl("src"))
-
-      val scriptElements = doc.select("script[src]").toList
-      val scriptElementsSrc = scriptElements.map(_.absUrl("src"))
-
-      val styleElements = doc.select("link[rel=stylesheet]").toList
-      val styleElementsSrc = styleElements.map(_.absUrl("href"))
-
-      resourcesObject += Resource(url.toString, filteredLinks, imgElementsSrc ++ scriptElementsSrc ++ styleElementsSrc)
+      parseHtml(body).map{ doc =>
+        println(s"[info] Parsing for ${url.toString} complete!")
 
 
-      val linksToBeReturn = filteredLinks.map( l => new URL(l))
-        .filter(li => if(crawled.contains(li)) false else true)
+        val linkElements = doc.select("a").toList
+        val linkElementsHref = linkElements.map(_.attr("href"))
 
-      linksToBeReturn.foreach(link => println(s"[info] Found ${link.toString}"))
 
-      linksToBeReturn
+        saveToFile(linkElementsHref.toString, "hrefs")
+
+
+        val filteredLinks = linkElementsHref.filter(isInternalLink)
+          .map(makeAbsolute)
+          .map(cleanLink)
+
+        println("links :" + filteredLinks)
+
+        val imgElements = doc.select("img[src]").toList
+        val imgElementsSrc = imgElements.map(_.absUrl("src"))
+
+        val scriptElements = doc.select("script[src]").toList
+        val scriptElementsSrc = scriptElements.map(_.absUrl("src"))
+
+        val styleElements = doc.select("link[rel=stylesheet]").toList
+        val styleElementsSrc = styleElements.map(_.absUrl("href"))
+
+        resourcesObject += Resource(url.toString, filteredLinks, imgElementsSrc ++ scriptElementsSrc ++ styleElementsSrc)
+
+
+        val linksToBeReturn = filteredLinks.map( l => new URL(l))
+          .filter(li => if(crawled.contains(li)) false else true)
+
+        linksToBeReturn.foreach(link => println(s"[info] Found ${link.toString}"))
+
+        linksToBeReturn
+
+      }
+
+
+      //val doc = Jsoup.parse(body)
+
+
     }
 
   }
@@ -133,14 +147,15 @@ class Crawler(startUrl: URL) extends Actor{
   }
 
   def isInternalLink(url: String): Boolean = url match {
-    case matchUrl if !matchUrl.startsWith("http") => true
-    case matchUrl if matchUrl.startsWith(startUrl.toString) => true
+    case matchUrl if !matchUrl.contains("://") => true
+    case matchUrl if matchUrl.startsWith(startUrl.toString) && !matchUrl.startsWith("#") => true
     case _ => false
   }
 
   def makeAbsolute(url: String): String = url match {
     case matchUrl if matchUrl.startsWith(startUrl.toString) => matchUrl
     case matchUrl if matchUrl.startsWith("/") => startUrl.toString + matchUrl
+    case matchUrl => startUrl.toString + "/" + matchUrl
   }
 
   def cleanLink(url: String): String = url match {
@@ -158,6 +173,20 @@ class Crawler(startUrl: URL) extends Actor{
     val bw = new BufferedWriter(new FileWriter(file))
     bw.write(json)
     bw.close()
+  }
+
+  def saveToFile(data: String, fileName: String): Unit = {
+    implicit val formats = DefaultFormats
+    val json = write(data)
+    // FileWriter
+    val file = new File(s"$fileName.json")
+    val bw = new BufferedWriter(new FileWriter(file))
+    bw.write(json)
+    bw.close()
+  }
+
+  def parseHtml(body: String): Future[Document] = Future {
+    Jsoup.parse(body)
   }
 
 
