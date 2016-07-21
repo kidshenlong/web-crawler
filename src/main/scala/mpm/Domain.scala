@@ -5,6 +5,8 @@ package mpm
   */
 object Domain {
 
-  case class Link(protocol: String = "http", host: String, path: Option[String])
+  //case class Link(protocol: String = "http", host: String, path: Option[String])
+
+  case class Resource(path: String, links: List[String], assets: List[String])
 
 }

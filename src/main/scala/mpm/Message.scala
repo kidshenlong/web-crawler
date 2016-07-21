@@ -9,3 +9,4 @@ sealed abstract class Message()
 
 case class Start()
 case class Explore(url: URL)
+case class Finish()
