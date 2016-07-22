@@ -2,7 +2,7 @@ package mpm
 
 import java.net.URL
 
-import akka.actor.{ActorSystem, Props}
+import akka.actor._
 
 /**
   * Created by Michael on 20/07/2016.
@@ -16,13 +16,26 @@ object Main {
 
     val crawler = system.actorOf(Props(new MasterCrawler(domain)), "crawler")
 
-    crawler ! Idle()
+    system.actorOf(Props(classOf[Terminator], crawler), "terminator")
+
   }
 
   def clean(url: String) = url match{
     case matchUrl if matchUrl.endsWith("/") => matchUrl.dropRight(1)
     case _ => url
   }
+
+  class Terminator(ref: ActorRef) extends Actor with ActorLogging {
+    context watch ref
+    def receive = {
+      case Terminated(_) =>
+        log.info("{} has terminated, shutting down system", ref.path)
+        context.system.terminate()
+    }
+  }
+
+
+
 }
 
 
