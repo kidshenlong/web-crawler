@@ -26,54 +26,59 @@ with Helpers{
   def actorRefFactory: ActorRefFactory = context
   implicit val system = context.system
   implicit val materializer = ActorMaterializer()
+  //Own execution context to manage blocking calls
   implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(200))
 
-  override def preStart {
-    //master ! Idle()
-  }
-
   def receive = {
+    case WorkAvailable() => master ! GiveWork()
     case Crawl(url) => handleCrawl(url)
   }
 
   def handleCrawl(url: URL) = {
-    makeHttpRequest(url).flatMap{ body =>
-      parseHtml(body).flatMap { doc =>
-        println(s"[info] Parsing for ${url.toString} complete!")
+    println("crawling!")
+  }
 
-        extractLinks(doc).flatMap { linkElementsHref =>
 
-          val filteredLinks = linkElementsHref.filter(isInternalLink)
-            .map(makeAbsolute)
-            .map(cleanLink)
+  /*
+    def handleCrawl(url: URL) = {
+      makeHttpRequest(url).flatMap{ body =>
+        parseHtml(body).flatMap { doc =>
+          println(s"[info] Parsing for ${url.toString} complete!")
 
-          extractStaticAssets(doc).map{ staticAssets =>
-            Resource(url.toString, filteredLinks, staticAssets)
+          extractLinks(doc).flatMap { linkElementsHref =>
+
+            val filteredLinks = linkElementsHref.filter(isInternalLink)
+              .map(makeAbsolute)
+              .map(cleanLink)
+
+            extractStaticAssets(doc).map{ staticAssets =>
+              Resource(url.toString, filteredLinks, staticAssets)
+            }
           }
         }
+      }.map( res => CrawlComplete(res))
+    } pipeTo sender
+
+    private def makeHttpRequest(url: URL):Future[String] = {
+
+
+      def extractionLocation(httpResponse: HttpResponse): Future[String] = {
+        val location = httpResponse.headers.find(l => l.is("location")).getOrElse(throw new scala.Exception()).value() //todo(mpm) handle exceptions
+        makeHttpRequest(new URL(location))
       }
-    }.map( res => CrawlComplete(res))
-  } pipeTo sender
 
-  private def makeHttpRequest(url: URL):Future[String] = {
-
-
-    def extractionLocation(httpResponse: HttpResponse): Future[String] = {
-      val location = httpResponse.headers.find(l => l.is("location")).getOrElse(throw new scala.Exception()).value() //todo(mpm) handle exceptions
-      makeHttpRequest(new URL(location))
-    }
-
-    Http().singleRequest(HttpRequest(uri = url.toString)).flatMap{ httpResponse =>
-      httpResponse.status match {
-        case MovedPermanently => //Handle Redirects
-          extractionLocation(httpResponse)
-        case Found => //Handle Redirects
-          extractionLocation(httpResponse)
-        case _ => Unmarshal(httpResponse.entity).to[String]
+      Http().singleRequest(HttpRequest(uri = url.toString)).flatMap{ httpResponse =>
+        httpResponse.status match {
+          case MovedPermanently => //Handle Redirects
+            extractionLocation(httpResponse)
+          case Found => //Handle Redirects
+            extractionLocation(httpResponse)
+          case _ => Unmarshal(httpResponse.entity).to[String]
+        }
       }
+
+
     }
-
-
-  }
+  */
 
 }

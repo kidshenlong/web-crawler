@@ -5,7 +5,7 @@ import java.net.URL
 import java.util.concurrent.Executors
 
 import akka.actor._
-import akka.routing.{RoundRobinPool, SmallestMailboxPool}
+import akka.routing.{DefaultResizer, Broadcast, RoundRobinPool, SmallestMailboxPool}
 import akka.stream.ActorMaterializer
 import mpm.Domain.Resource
 import org.json4s.DefaultFormats
@@ -26,8 +26,6 @@ class MasterCrawler(domain: URL) extends Actor {
   implicit val system = context.system
   implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(200))
 
-  var task = system.scheduler.scheduleOnce(30 seconds, self, Finish())
-
 
   //In a real world situation this would be a call to a strongly consistent Database
   //or something function ie: Memoisation
@@ -35,49 +33,36 @@ class MasterCrawler(domain: URL) extends Actor {
   var completedUrls: mutable.Set[URL] = mutable.Set.empty[URL]
   var resources: mutable.Set[Resource] = mutable.Set.empty[Resource]
 
-  var slaveRouter: ActorRef = context.actorOf(SmallestMailboxPool(10).props(Props(classOf[SlaveCrawler], self, domain)))
+  val resizer = DefaultResizer(lowerBound = 2, upperBound = 15)
+  var slaveRouter: ActorRef = context.actorOf(SmallestMailboxPool(10, Some(resizer)).props(Props(classOf[SlaveCrawler], self, domain)))
 
-
-
-  def receive: Receive = {
-    case Start() =>
-    case Idle() => handleIdle()
-    case CrawlComplete(resource) => handleCrawlComplete(resource)
-    case Finish() => handleFinish()
+  override def preStart(): Unit = {
+    self ! Start()
   }
 
-  def handleIdle() = {
+  def receive: Receive = {
+    case Start() => self ! WorkAvailable()
+    case GiveWork() => handleCrawl(sender())
+    case CrawlComplete(resource) => handleCrawlComplete(resource)
+    case WorkAvailable() => slaveRouter ! Broadcast(WorkAvailable())
+  }
+
+  def handleCrawl(worker: ActorRef) = {
     if(pendingURLs.nonEmpty){
-      val urls = pendingURLs.take(10).foreach{ url =>
-        pendingURLs = pendingURLs.filterNot(_ == url)
-        slaveRouter ! Crawl(url)
-      }
+      //Reset Timeout Timer
+      val url = pendingURLs.head
+      pendingURLs = pendingURLs.filterNot(_ == url)
+      worker ! Crawl(url)
+    } else {
+      //Start Timeout Timer
     }
   }
 
   def handleCrawlComplete(resource: Resource) = {
     completedUrls += new URL(resource.path)
     resources += resource
-    pendingURLs = pendingURLs ++ resource.links.map(new URL(_)).filter(li => if(completedUrls.contains(li)) false else true)
-    handleIdle()
-    task = system.scheduler.scheduleOnce(30 seconds, self, Finish())
+    pendingURLs = pendingURLs ++ resource.links.map(new URL(_))
+    self ! WorkAvailable()
   }
-
-  def handleFinish() = {
-    println("[info] Crawling Complete")
-    saveToFile()
-    System.exit(1)
-  }
-
-  def saveToFile(): Unit = {
-    implicit val formats = DefaultFormats
-    val json = write(resources)
-    // FileWriter
-    val file = new File(s"${domain.getHost}.json")
-    val bw = new BufferedWriter(new FileWriter(file))
-    bw.write(json)
-    bw.close()
-  }
-
 
 }
