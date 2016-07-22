@@ -8,6 +8,7 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.{HttpRequest, HttpResponse}
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.ActorMaterializer
+import akka.util.Timeout
 import mpm.Domain.Resource
 import mpm.util.Helpers
 import org.jsoup.Jsoup
@@ -16,6 +17,7 @@ import akka.http.scaladsl.model.StatusCodes._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.collection.JavaConversions._
 import scala.concurrent.duration._
+import akka.pattern.ask
 
 /**
   * Created by Michael on 21/07/2016.
@@ -32,10 +34,49 @@ with Helpers{
   def receive = {
     case WorkAvailable() => master ! GiveWork()
     case Crawl(url) => handleCrawl(url)
+    case GetUrlBody(url) => handleGetUrlBody(url) pipeTo sender()
+    case ParseBody(body) => handleParseBody(body) pipeTo sender()
   }
 
+
+
   def handleCrawl(url: URL) = {
+    implicit val timeout = Timeout(10 seconds)
     println("crawling!")
+    val res = (self ? GetUrlBody(url)).mapTo[String]
+    res.map { body =>
+      val bod = (self ? ParseBody(body)).mapTo[Document].map { l =>
+        //println(l.toString)
+      }
+    }
+    //println(res)
+  }
+
+  def handleGetUrlBody(url: URL): Future[String] = {
+    println("called")
+
+    def extractionLocation(httpResponse: HttpResponse): Future[String] = {
+      val location = httpResponse.headers.find(l => l.is("location")).getOrElse(throw new scala.Exception()).value() //todo(mpm) handle exceptions
+      handleGetUrlBody(new URL(location))
+    }
+
+    Http().singleRequest(HttpRequest(uri = url.toString)).flatMap{ httpResponse =>
+      //println("here")
+      //println(httpResponse)
+
+      httpResponse.status match {
+        case MovedPermanently => //Handle Redirects
+          extractionLocation(httpResponse)
+        case Found => //Handle Redirects
+          extractionLocation(httpResponse)
+        case _ => Unmarshal(httpResponse.entity).to[String]
+      }
+    }
+
+  }
+
+  def handleParseBody(body: String): Future[Document] = Future {
+    Jsoup.parse(body)
   }
 
 

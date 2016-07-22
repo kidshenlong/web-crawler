@@ -15,3 +15,6 @@ case class Crawl(url: URL) extends Message()
 case class CrawlComplete(resourcesFound: Resource) extends Message()
 case class Finish() extends Message()
 case class GiveWork() extends Message()
+
+case class GetUrlBody(url: URL) extends Message()
+case class ParseBody(body: String) extends Message()
