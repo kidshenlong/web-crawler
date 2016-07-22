@@ -2,11 +2,14 @@ package mpm
 
 import java.net.URL
 
-/**
-  * Created by Michael on 20/07/2016.
-  */
+import mpm.Domain.Resource
+
 sealed abstract class Message()
 
-case class Start()
-case class Explore(url: URL)
-case class Finish()
+case class Start() extends Message()
+case class Idle() extends Message()
+case class WorkAvailable() extends Message()
+case class Crawl(url: URL) extends Message()
+//case class CrawlComplete(urlCrawled: URL, urlsFound: Seq[URL])
+case class CrawlComplete(resourcesFound: Resource) extends Message()
+case class Finish() extends Message()
