@@ -12,7 +12,7 @@ import akka.util.Timeout
 import mpm.Domain.Resource
 import mpm.util.Helpers
 import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
+import org.jsoup.nodes.{Element, Document}
 import akka.http.scaladsl.model.StatusCodes._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.collection.JavaConversions._
@@ -29,41 +29,53 @@ with Helpers{
   implicit val system = context.system
   implicit val materializer = ActorMaterializer()
   //Own execution context to manage blocking calls
-  implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(200))
+  //Fixed size to handle potentially expensive calls
+  //20's quite conservative. This is to avoid hitting OS thread limits
+  implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(20))
 
   def receive = {
     case WorkAvailable() => master ! GiveWork()
     case Crawl(url) => handleCrawl(url)
     case GetUrlBody(url) => handleGetUrlBody(url) pipeTo sender()
     case ParseBody(body) => handleParseBody(body) pipeTo sender()
+    case ExtractLinks(document) => handleExtractLinks(document) pipeTo sender()
+    //case CrawlComplete(resources) => master
   }
 
-
+  override def preStart(): Unit = {
+    master ! GiveWork()
+  }
 
   def handleCrawl(url: URL) = {
-    implicit val timeout = Timeout(10 seconds)
-    println("crawling!")
-    val res = (self ? GetUrlBody(url)).mapTo[String]
-    res.map { body =>
-      val bod = (self ? ParseBody(body)).mapTo[Document].map { l =>
-        //println(l.toString)
+    println(s"[info] Started Crawling ${url.toString}")
+    implicit val timeout = Timeout(60 seconds)
+    val responseHtml = (self ? GetUrlBody(url)).mapTo[String]
+    responseHtml.map { html =>
+      val document = (self ? ParseBody(html)).mapTo[Document]
+        document.map { doc =>
+          val linkSeq = (self ? ExtractLinks(doc)).mapTo[Set[String]]
+
+          linkSeq.map{ links =>
+            val finalLinks = links.filter(isInternalLink)
+              .map(makeAbsolute)
+              .map(cleanLink)
+
+            println(s"[info] Finished Crawling ${url.toString}")
+            master ! CrawlComplete(Resource(url.toString, finalLinks, Set()))
+
+          }
+
       }
     }
-    //println(res)
   }
 
   def handleGetUrlBody(url: URL): Future[String] = {
-    println("called")
-
     def extractionLocation(httpResponse: HttpResponse): Future[String] = {
       val location = httpResponse.headers.find(l => l.is("location")).getOrElse(throw new scala.Exception()).value() //todo(mpm) handle exceptions
       handleGetUrlBody(new URL(location))
     }
 
     Http().singleRequest(HttpRequest(uri = url.toString)).flatMap{ httpResponse =>
-      //println("here")
-      //println(httpResponse)
-
       httpResponse.status match {
         case MovedPermanently => //Handle Redirects
           extractionLocation(httpResponse)
@@ -79,47 +91,8 @@ with Helpers{
     Jsoup.parse(body)
   }
 
-
-  /*
-    def handleCrawl(url: URL) = {
-      makeHttpRequest(url).flatMap{ body =>
-        parseHtml(body).flatMap { doc =>
-          println(s"[info] Parsing for ${url.toString} complete!")
-
-          extractLinks(doc).flatMap { linkElementsHref =>
-
-            val filteredLinks = linkElementsHref.filter(isInternalLink)
-              .map(makeAbsolute)
-              .map(cleanLink)
-
-            extractStaticAssets(doc).map{ staticAssets =>
-              Resource(url.toString, filteredLinks, staticAssets)
-            }
-          }
-        }
-      }.map( res => CrawlComplete(res))
-    } pipeTo sender
-
-    private def makeHttpRequest(url: URL):Future[String] = {
-
-
-      def extractionLocation(httpResponse: HttpResponse): Future[String] = {
-        val location = httpResponse.headers.find(l => l.is("location")).getOrElse(throw new scala.Exception()).value() //todo(mpm) handle exceptions
-        makeHttpRequest(new URL(location))
-      }
-
-      Http().singleRequest(HttpRequest(uri = url.toString)).flatMap{ httpResponse =>
-        httpResponse.status match {
-          case MovedPermanently => //Handle Redirects
-            extractionLocation(httpResponse)
-          case Found => //Handle Redirects
-            extractionLocation(httpResponse)
-          case _ => Unmarshal(httpResponse.entity).to[String]
-        }
-      }
-
-
-    }
-  */
+  def handleExtractLinks(doc: Document): Future[Set[String]] = Future {
+    doc.select("a").toSet[Element].map(_.attr("href"))
+  }
 
 }

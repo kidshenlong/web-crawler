@@ -5,6 +5,6 @@ package mpm
   */
 object Domain {
 
-  case class Resource(path: String, links: List[String], assets: List[String])
+  case class Resource(path: String, links: Set[String], assets: Set[String])
 
 }

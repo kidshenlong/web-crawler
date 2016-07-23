@@ -24,7 +24,10 @@ class MasterCrawler(domain: URL) extends Actor {
 
   def actorRefFactory: ActorRefFactory = context
   implicit val system = context.system
-  implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(200))
+  //Cached Thread Pool for many short lived tasks
+  implicit val ec = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
+
+  context.system.eventStream.subscribe(self, classOf[DeadLetter])
 
 
   //In a real world situation this would be a call to a strongly consistent Database
@@ -33,18 +36,21 @@ class MasterCrawler(domain: URL) extends Actor {
   var completedUrls: mutable.Set[URL] = mutable.Set.empty[URL]
   var resources: mutable.Set[Resource] = mutable.Set.empty[Resource]
 
-  val resizer = DefaultResizer(lowerBound = 2, upperBound = 15)
+  val resizer = DefaultResizer(lowerBound = 10, upperBound = 40)
   var slaveRouter: ActorRef = context.actorOf(SmallestMailboxPool(10, Some(resizer)).props(Props(classOf[SlaveCrawler], self, domain)))
 
   override def preStart(): Unit = {
-    self ! Start()
+    //self ! Start()
   }
 
   def receive: Receive = {
-    case Start() => self ! WorkAvailable()
+    //case Start() => self ! WorkAvailable()
     case GiveWork() => handleCrawl(sender())
     case CrawlComplete(resource) => handleCrawlComplete(resource)
     case WorkAvailable() => slaveRouter ! Broadcast(WorkAvailable())
+    case Finish() => context.stop(self)
+    case DeadLetter(msg, from, to) => println(msg.toString.take(20) + s" $from --- $to")
+
   }
 
   def handleCrawl(worker: ActorRef) = {
@@ -55,13 +61,16 @@ class MasterCrawler(domain: URL) extends Actor {
       worker ! Crawl(url)
     } else {
       //Start Timeout Timer
+      //self ! PoisonPill//Finish()
+      //context.stop(self)
     }
   }
 
   def handleCrawlComplete(resource: Resource) = {
+    println(resource)
     completedUrls += new URL(resource.path)
     resources += resource
-    pendingURLs = pendingURLs ++ resource.links.map(new URL(_))
+    pendingURLs = pendingURLs ++ resource.links.map(new URL(_)).filter(li => if(completedUrls.contains(li)) false else true)
     self ! WorkAvailable()
   }
 

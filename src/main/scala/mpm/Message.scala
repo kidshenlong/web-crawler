@@ -3,6 +3,7 @@ package mpm
 import java.net.URL
 
 import mpm.Domain.Resource
+import org.jsoup.nodes.Document
 
 sealed abstract class Message()
 
@@ -18,3 +19,4 @@ case class GiveWork() extends Message()
 
 case class GetUrlBody(url: URL) extends Message()
 case class ParseBody(body: String) extends Message()
+case class ExtractLinks(document: Document) extends Message()
