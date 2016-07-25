@@ -12,7 +12,7 @@ object CommonSettings {
   lazy val coverageSettings = Seq(
     coverageMinimum := 90,
     coverageFailOnMinimum := true,
-    coverageExcludedPackages := "mpm.Main;mpm.util.HttpClient"
+    coverageExcludedPackages := "mpm.Main;mpm.util.HttpClient;mpm.util.FileHelper"
   )
 
   lazy val commonSettings = Seq(

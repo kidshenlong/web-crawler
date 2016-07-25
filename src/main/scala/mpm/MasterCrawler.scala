@@ -21,7 +21,7 @@ import language.postfixOps
 /**
   * Created by Michael on 21/07/2016.
   */
-class MasterCrawler(domain: URL) extends Actor with FileHelper{
+class MasterCrawler(domain: URL) extends Actor{
 
   //def actorRefFactory: ActorRefFactory = context
   implicit val system = context.system
@@ -29,6 +29,8 @@ class MasterCrawler(domain: URL) extends Actor with FileHelper{
   implicit val ec = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
 
   implicit val materializer = ActorMaterializer()
+
+  var file = new FileHelper()
 
 
   //In a real world situation this would be a call to a strongly consistent Database
@@ -80,7 +82,7 @@ class MasterCrawler(domain: URL) extends Actor with FileHelper{
   }
 
   def handleFinish(resourcesFound: mutable.Set[Resource]): Unit = {
-    saveToFile(resourcesFound, domain).map { _ =>
+    file.saveToFile(resourcesFound, domain).map { _ =>
       println(s"[info] File created: ${domain.getHost}.json")
       context.stop(selfActorRef)
     }

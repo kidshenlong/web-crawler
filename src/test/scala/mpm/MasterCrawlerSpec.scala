@@ -5,17 +5,20 @@ import java.net.URL
 import akka.actor.{ActorSystem, Props}
 import akka.testkit.{TestKit, TestActorRef, TestProbe}
 import mpm.Domain.Resource
+import mpm.util.FileHelper
+import org.specs2.mock.Mockito
 import org.specs2.mutable.Specification
 import org.specs2.specification.BeforeAfterAll
 
 import scala.collection.mutable
 import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
+import scala.concurrent.ExecutionContext.Implicits.global
 
 /**
   * Created by Michael on 22/07/2016.
   */
-class MasterCrawlerSpec extends Specification with BeforeAfterAll {
+class MasterCrawlerSpec extends Specification with BeforeAfterAll with Mockito{
 
   sequential
 
@@ -36,12 +39,7 @@ class MasterCrawlerSpec extends Specification with BeforeAfterAll {
   val foundResource = Resource(link1, Set(link2, link3), Set(asset))
 
 
-  val actorRef = TestActorRef(new MasterCrawler(domain){
-    override def saveToFile(resources: mutable.Set[Resource], domain: URL): Future[Unit] = {
-      println("call saveToFile")
-      Future(Unit)
-    }
-  })
+  val actorRef = TestActorRef(new MasterCrawler(domain))
 
   var masterCrawler: MasterCrawler = null
   var mockedSelfActorRef: TestProbe = null
@@ -57,6 +55,12 @@ class MasterCrawlerSpec extends Specification with BeforeAfterAll {
 
     masterCrawler.selfActorRef = mockedSelfActorRef.ref
     masterCrawler.slaveRouter =  mockedSlaveRouter.ref
+
+
+    val mockFile = mock[FileHelper]
+    mockFile.saveToFile(any, any) returns Future(Unit)
+
+    masterCrawler.file = mockFile
 
   }
 

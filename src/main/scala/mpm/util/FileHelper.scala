@@ -14,7 +14,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 /**
   * Created by Michael on 24/07/2016.
   */
-trait FileHelper {
+class FileHelper {
 
   def saveToFile(resources: mutable.Set[Resource], domain: URL): Future[Unit] = Future { blocking {
     implicit val formats = DefaultFormats
