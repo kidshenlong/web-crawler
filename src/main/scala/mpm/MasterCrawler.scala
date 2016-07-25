@@ -1,20 +1,17 @@
 package mpm
 
-import java.io.{FileWriter, BufferedWriter, File}
 import java.net.URL
 import java.util.concurrent.Executors
 
 import akka.actor._
-import akka.routing.{DefaultResizer, Broadcast, RoundRobinPool, SmallestMailboxPool}
+import akka.routing.{DefaultResizer, SmallestMailboxPool}
 import akka.stream.ActorMaterializer
 import mpm.Domain.Resource
-import mpm.util.{HttpClient, FileHelper}
-import org.json4s.DefaultFormats
-import org.json4s.jackson.Serialization._
-import scala.concurrent.{Future, ExecutionContext, blocking}
+import mpm.util.{FileHelper, HttpClient}
+
 import scala.collection._
-import scala.concurrent.duration._
-import language.postfixOps
+import scala.concurrent.ExecutionContext
+import scala.language.postfixOps
 //import scala.concurrent.ExecutionContext.Implicits.global
 
 
@@ -23,7 +20,6 @@ import language.postfixOps
   */
 class MasterCrawler(domain: URL) extends Actor{
 
-  //def actorRefFactory: ActorRefFactory = context
   implicit val system = context.system
   //Cached Thread Pool for many short lived tasks
   implicit val ec = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
@@ -40,7 +36,7 @@ class MasterCrawler(domain: URL) extends Actor{
   var finishedUrls: mutable.Set[URL] = mutable.Set.empty[URL]
   var resources: mutable.Set[Resource] = mutable.Set.empty[Resource]
 
-  val resizer = None//Some(DefaultResizer(lowerBound = 10, upperBound = 40))
+  val resizer = Some(DefaultResizer(lowerBound = 10, upperBound = 80))
   var slaveRouter: ActorRef = context.actorOf(SmallestMailboxPool(40, resizer).props(SlaveCrawler.props(self, domain, new HttpClient())))
 
   var selfActorRef = self

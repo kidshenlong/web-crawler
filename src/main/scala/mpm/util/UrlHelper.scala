@@ -1,18 +1,6 @@
 package mpm.util
 
 import java.net.URL
-
-import akka.actor.{ActorSystem, ActorRef}
-import akka.http.scaladsl.Http
-import akka.http.scaladsl.model.StatusCodes._
-import akka.http.scaladsl.model.{HttpRequest, HttpResponse}
-import akka.stream.ActorMaterializer
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import akka.http.scaladsl.unmarshalling.Unmarshal
-import scala.concurrent.Future
-import scala.collection.JavaConversions._
-import scala.concurrent.ExecutionContext.Implicits.global
 /**
   * Created by Michael on 22/07/2016.
   */
@@ -35,5 +23,4 @@ trait UrlHelper {
     case matchUrl if matchUrl.contains("#") => cleanLink(matchUrl.split("#")(0))
     case _ => url
   }
-
 }

@@ -80,23 +80,7 @@ class SlaveCrawlerSpec extends Specification with BeforeAfterAll with Mockito {
     "handleCrawl should send all underlying messages and return a Crawl Complete message to master" in {
       slaveCrawler.handleCrawl(link1AsURL)
 
-      mockedSelfActorRef.expectMsg(GetUrlBody(link1AsURL))
-
-      mockedSelfActorRef.reply(link1Body)
-
-      mockedSelfActorRef.expectMsg(ParseBody(link1Body))
-
-      mockedSelfActorRef.reply(link1Document)
-
-      mockedSelfActorRef.expectMsg(ExtractLinks(link1Document))
-
-      mockedSelfActorRef.reply(Set(link2))
-
-      mockedSelfActorRef.expectMsg(ExtractStaticAssets(link1Document))
-
-      mockedSelfActorRef.reply(Set(asset1))
-
-      mockedMasterCrawlerActorRef.expectMsg(CrawlComplete(Resource(link1, Set(link2), Set(asset1))))
+      mockedMasterCrawlerActorRef.expectMsg(CrawlComplete(Resource(link1, Set(link2), Set(asset1, asset2, asset3))))
 
       "" == ""
     }

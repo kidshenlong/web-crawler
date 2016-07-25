@@ -3,8 +3,6 @@ package mpm
 import java.net.URL
 
 import akka.actor._
-import scala.concurrent.duration._
-import scala.concurrent.ExecutionContext.Implicits.global
 
 /**
   * Created by Michael on 20/07/2016.

@@ -1,9 +1,8 @@
 package mpm.util
 
 import akka.actor.ActorSystem
-import akka.http.scaladsl.HttpExt
-import akka.http.scaladsl.model.{HttpResponse, HttpRequest}
-import akka.http.scaladsl.{HttpExt, Http}
+import akka.http.scaladsl.model.{HttpRequest, HttpResponse}
+import akka.http.scaladsl.{Http, HttpExt}
 import akka.stream.ActorMaterializer
 
 import scala.concurrent.Future

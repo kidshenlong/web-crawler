@@ -2,22 +2,20 @@ package mpm
 
 import java.net.URL
 import java.util.concurrent.Executors
-import akka.pattern.{ask, pipe}
-import akka.actor.{Props, ActorRefFactory, ActorRef, Actor}
-import akka.http.scaladsl.{HttpExt, Http}
-import akka.http.scaladsl.model.{HttpRequest, HttpResponse}
+
+import akka.actor.{Actor, ActorRef, Props}
+import akka.http.scaladsl.model.HttpRequest
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.ActorMaterializer
 import akka.util.Timeout
 import mpm.Domain.Resource
 import mpm.util.{HttpClient, UrlHelper}
 import org.jsoup.Jsoup
-import org.jsoup.nodes.{Element, Document}
-import akka.http.scaladsl.model.StatusCodes._
-import scala.concurrent.{ExecutionContext, Future, blocking}
+import org.jsoup.nodes.{Document, Element}
+
 import scala.collection.JavaConversions._
 import scala.concurrent.duration._
-import akka.pattern.ask
+import scala.concurrent.{ExecutionContext, Future}
 import scala.language.postfixOps
 
 //import scala.concurrent.ExecutionContext.Implicits.global
@@ -31,36 +29,32 @@ with UrlHelper{
   implicit val system = context.system
   //Own execution context to manage blocking calls
   //Fixed size to handle potentially expensive calls
-  //20's quite conservative. This is to avoid hitting OS thread limits
-  //implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(20000))
-  implicit val ec = ExecutionContext.fromExecutor(Executors.newWorkStealingPool())
+  //100's quite conservative. This is to avoid hitting OS thread limits
+  implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(100))
+  //implicit val ec = ExecutionContext.fromExecutor(Executors.newWorkStealingPool())
 
   var selfActorRef: ActorRef = self
 
   def receive = {
     case Crawl(url) => handleCrawl(url)
-    case GetUrlBody(url) => handleGetUrlBody(url) pipeTo sender()
-    case ParseBody(body) => handleParseBody(body) pipeTo sender()
-    case ExtractLinks(document) => handleExtractLinks(document) pipeTo sender()
-    case ExtractStaticAssets(document) => handleExtractStaticAssets(document) pipeTo sender()
   }//todo Error handler to pipe failure back to master
 
 
   def handleCrawl(url: URL) = {
     println(s"[info] Started Crawling ${url.toString}")
     implicit val timeout = Timeout(15 seconds)
-    val responseHtml = (selfActorRef ? GetUrlBody(url)).mapTo[String]
+    val responseHtml = handleGetUrlBody(url)
     responseHtml.map { html =>
-      val document = (selfActorRef ? ParseBody(html)).mapTo[Document]
+      val document = handleParseBody(html)
       document.map { doc =>
-        val linkSet = (selfActorRef ? ExtractLinks(doc)).mapTo[Set[String]]
+        val linkSet = handleExtractLinks(doc)
 
         linkSet.map{ links =>
           val finalLinks = links.filter(isInternalLink)
             .map(makeAbsolute)
             .map(cleanLink)
 
-          val assetSet = (selfActorRef ? ExtractStaticAssets(doc)).mapTo[Set[String]]
+          val assetSet = handleExtractStaticAssets(doc)
 
           assetSet.map{ assets =>
 
@@ -85,6 +79,7 @@ with UrlHelper{
           extractionLocation(httpResponse)
         case Found => //Handle Redirects
           extractionLocation(httpResponse)*/
+          //todo (mpm) how can we follow redirects better?
         case _ => Unmarshal(httpResponse.entity).to[String]
       }
     }
