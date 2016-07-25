@@ -8,70 +8,82 @@ import akka.actor._
 import akka.routing.{DefaultResizer, Broadcast, RoundRobinPool, SmallestMailboxPool}
 import akka.stream.ActorMaterializer
 import mpm.Domain.Resource
+import mpm.util.{HttpClient, FileHelper}
 import org.json4s.DefaultFormats
 import org.json4s.jackson.Serialization._
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{Future, ExecutionContext, blocking}
 import scala.collection._
 import scala.concurrent.duration._
-
+import language.postfixOps
 //import scala.concurrent.ExecutionContext.Implicits.global
 
 
 /**
   * Created by Michael on 21/07/2016.
   */
-class MasterCrawler(domain: URL) extends Actor {
+class MasterCrawler(domain: URL) extends Actor with FileHelper{
 
-  def actorRefFactory: ActorRefFactory = context
+  //def actorRefFactory: ActorRefFactory = context
   implicit val system = context.system
   //Cached Thread Pool for many short lived tasks
   implicit val ec = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
 
-  context.system.eventStream.subscribe(self, classOf[DeadLetter])
+  implicit val materializer = ActorMaterializer()
 
 
   //In a real world situation this would be a call to a strongly consistent Database
   //or something function ie: Memoisation
   var pendingURLs: mutable.Set[URL] = mutable.Set(domain)
-  var completedUrls: mutable.Set[URL] = mutable.Set.empty[URL]
+  var startedURLs: mutable.Set[URL] = mutable.Set.empty[URL]
+  var finishedUrls: mutable.Set[URL] = mutable.Set.empty[URL]
   var resources: mutable.Set[Resource] = mutable.Set.empty[Resource]
 
-  val resizer = DefaultResizer(lowerBound = 10, upperBound = 40)
-  var slaveRouter: ActorRef = context.actorOf(SmallestMailboxPool(10, Some(resizer)).props(Props(classOf[SlaveCrawler], self, domain)))
+  val resizer = None//Some(DefaultResizer(lowerBound = 10, upperBound = 40))
+  var slaveRouter: ActorRef = context.actorOf(SmallestMailboxPool(40, resizer).props(SlaveCrawler.props(self, domain, new HttpClient())))
 
-  override def preStart(): Unit = {
-    //self ! Start()
-  }
+  var selfActorRef = self
 
   def receive: Receive = {
-    //case Start() => self ! WorkAvailable()
-    case GiveWork() => handleCrawl(sender())
+    case Start => handleCrawl()
     case CrawlComplete(resource) => handleCrawlComplete(resource)
-    case WorkAvailable() => slaveRouter ! Broadcast(WorkAvailable())
-    case Finish() => context.stop(self)
-    case DeadLetter(msg, from, to) => println(msg.toString.take(20) + s" $from --- $to")
-
+    case WorkAvailable => handleCrawl()
+    case Finish(resourcesFound) => handleFinish(resourcesFound)
   }
 
-  def handleCrawl(worker: ActorRef) = {
+  def handleCrawl() = {
     if(pendingURLs.nonEmpty){
-      //Reset Timeout Timer
-      val url = pendingURLs.head
-      pendingURLs = pendingURLs.filterNot(_ == url)
-      worker ! Crawl(url)
-    } else {
-      //Start Timeout Timer
-      //self ! PoisonPill//Finish()
-      //context.stop(self)
+      pendingURLs.foreach { url =>
+        pendingURLs = pendingURLs.filterNot(_ == url)
+
+        if(!startedURLs.contains(url)) {
+          slaveRouter ! Crawl(url)
+          startedURLs += url
+        }
+      }
+    } else if(pendingURLs.isEmpty && startedURLs.isEmpty){
+      selfActorRef ! Finish(resources)
     }
   }
 
   def handleCrawlComplete(resource: Resource) = {
-    println(resource)
-    completedUrls += new URL(resource.path)
+    finishedUrls += new URL(resource.path)
     resources += resource
-    pendingURLs = pendingURLs ++ resource.links.map(new URL(_)).filter(li => if(completedUrls.contains(li)) false else true)
-    self ! WorkAvailable()
+    startedURLs -= new URL(resource.path)
+
+    val newUrls = resource.links.map(new URL(_)).filter(li => if(finishedUrls.contains(li)) false else true)
+
+    if(newUrls.nonEmpty){
+      pendingURLs = pendingURLs ++ newUrls
+    }
+
+    selfActorRef ! WorkAvailable
+  }
+
+  def handleFinish(resourcesFound: mutable.Set[Resource]): Unit = {
+    saveToFile(resourcesFound, domain).map { _ =>
+      println(s"[info] File created: ${domain.getHost}.json")
+      context.stop(selfActorRef)
+    }
   }
 
 }

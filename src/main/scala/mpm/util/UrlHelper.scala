@@ -16,28 +16,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 /**
   * Created by Michael on 22/07/2016.
   */
-trait Helpers {
-
-  implicit val system: ActorSystem
-  implicit val materializer: ActorMaterializer
-
-  def extractLinks(doc: Document): Future[List[String]] = Future {
-    doc.select("a").toList.map(_.attr("href")).distinct
-  }
-
-  def extractStaticAssets(doc: Document): Future[List[String]] = Future {
-    val imgElementsSrc = doc.select("img[src]").toList.map(_.absUrl("src"))
-
-    val scriptElementsSrc = doc.select("script[src]").toList.map(_.absUrl("src"))
-
-    val styleElementsHref = doc.select("link[rel=stylesheet]").toList.map(_.absUrl("href"))
-
-    (imgElementsSrc ++ scriptElementsSrc ++ styleElementsHref).distinct
-  }
-
-  def parseHtml(body: String): Future[Document] = Future {
-    Jsoup.parse(body)
-  }
+trait UrlHelper {
 
   def isInternalLink(url: String)(implicit startUrl: URL): Boolean = url match {
     case matchUrl if !matchUrl.contains("://") => true

@@ -3,84 +3,88 @@ package mpm
 import java.net.URL
 import java.util.concurrent.Executors
 import akka.pattern.{ask, pipe}
-import akka.actor.{ActorRefFactory, ActorRef, Actor}
-import akka.http.scaladsl.Http
+import akka.actor.{Props, ActorRefFactory, ActorRef, Actor}
+import akka.http.scaladsl.{HttpExt, Http}
 import akka.http.scaladsl.model.{HttpRequest, HttpResponse}
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.ActorMaterializer
 import akka.util.Timeout
 import mpm.Domain.Resource
-import mpm.util.Helpers
+import mpm.util.{HttpClient, UrlHelper}
 import org.jsoup.Jsoup
 import org.jsoup.nodes.{Element, Document}
 import akka.http.scaladsl.model.StatusCodes._
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{ExecutionContext, Future, blocking}
 import scala.collection.JavaConversions._
 import scala.concurrent.duration._
 import akka.pattern.ask
+import scala.language.postfixOps
+
+//import scala.concurrent.ExecutionContext.Implicits.global
 
 /**
   * Created by Michael on 21/07/2016.
   */
-class SlaveCrawler(val master: ActorRef, implicit val startUrl: URL) extends Actor
-with Helpers{
+class SlaveCrawler(val master: ActorRef, implicit val startUrl: URL, httpClient: HttpClient)(implicit materializer: ActorMaterializer) extends Actor
+with UrlHelper{
 
-  def actorRefFactory: ActorRefFactory = context
   implicit val system = context.system
-  implicit val materializer = ActorMaterializer()
   //Own execution context to manage blocking calls
   //Fixed size to handle potentially expensive calls
   //20's quite conservative. This is to avoid hitting OS thread limits
-  implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(20))
+  //implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(20000))
+  implicit val ec = ExecutionContext.fromExecutor(Executors.newWorkStealingPool())
+
+  var selfActorRef: ActorRef = self
 
   def receive = {
-    case WorkAvailable() => master ! GiveWork()
     case Crawl(url) => handleCrawl(url)
     case GetUrlBody(url) => handleGetUrlBody(url) pipeTo sender()
     case ParseBody(body) => handleParseBody(body) pipeTo sender()
     case ExtractLinks(document) => handleExtractLinks(document) pipeTo sender()
-    //case CrawlComplete(resources) => master
-  }
+    case ExtractStaticAssets(document) => handleExtractStaticAssets(document) pipeTo sender()
+  }//todo Error handler to pipe failure back to master
 
-  override def preStart(): Unit = {
-    master ! GiveWork()
-  }
 
   def handleCrawl(url: URL) = {
     println(s"[info] Started Crawling ${url.toString}")
-    implicit val timeout = Timeout(60 seconds)
-    val responseHtml = (self ? GetUrlBody(url)).mapTo[String]
+    implicit val timeout = Timeout(15 seconds)
+    val responseHtml = (selfActorRef ? GetUrlBody(url)).mapTo[String]
     responseHtml.map { html =>
-      val document = (self ? ParseBody(html)).mapTo[Document]
-        document.map { doc =>
-          val linkSeq = (self ? ExtractLinks(doc)).mapTo[Set[String]]
+      val document = (selfActorRef ? ParseBody(html)).mapTo[Document]
+      document.map { doc =>
+        val linkSet = (selfActorRef ? ExtractLinks(doc)).mapTo[Set[String]]
 
-          linkSeq.map{ links =>
-            val finalLinks = links.filter(isInternalLink)
-              .map(makeAbsolute)
-              .map(cleanLink)
+        linkSet.map{ links =>
+          val finalLinks = links.filter(isInternalLink)
+            .map(makeAbsolute)
+            .map(cleanLink)
+
+          val assetSet = (selfActorRef ? ExtractStaticAssets(doc)).mapTo[Set[String]]
+
+          assetSet.map{ assets =>
 
             println(s"[info] Finished Crawling ${url.toString}")
-            master ! CrawlComplete(Resource(url.toString, finalLinks, Set()))
+            master ! CrawlComplete(Resource(url.toString, finalLinks, assets))
 
           }
-
+        }
       }
     }
   }
 
   def handleGetUrlBody(url: URL): Future[String] = {
-    def extractionLocation(httpResponse: HttpResponse): Future[String] = {
+    /*def extractionLocation(httpResponse: HttpResponse): Future[String] = {
       val location = httpResponse.headers.find(l => l.is("location")).getOrElse(throw new scala.Exception()).value() //todo(mpm) handle exceptions
       handleGetUrlBody(new URL(location))
-    }
+    }*/
 
-    Http().singleRequest(HttpRequest(uri = url.toString)).flatMap{ httpResponse =>
+    httpClient.sendRequest(HttpRequest(uri = url.toString)).flatMap{ httpResponse =>
       httpResponse.status match {
-        case MovedPermanently => //Handle Redirects
+        /*case MovedPermanently => //Handle Redirects
           extractionLocation(httpResponse)
         case Found => //Handle Redirects
-          extractionLocation(httpResponse)
+          extractionLocation(httpResponse)*/
         case _ => Unmarshal(httpResponse.entity).to[String]
       }
     }
@@ -95,4 +99,19 @@ with Helpers{
     doc.select("a").toSet[Element].map(_.attr("href"))
   }
 
+  def handleExtractStaticAssets(doc: Document): Future[Set[String]] = Future {
+    val imgElementsSrc = doc.select("img[src]").toSet[Element].map(_.absUrl("src"))
+
+    val scriptElementsSrc = doc.select("script[src]").toSet[Element].map(_.absUrl("src"))
+
+    val styleElementsHref = doc.select("link[rel=stylesheet]").toSet[Element].map(_.absUrl("href"))
+
+    imgElementsSrc ++ scriptElementsSrc ++ styleElementsHref
+  }
+
 }
+
+object SlaveCrawler {
+  def props(master: ActorRef, startUrl: URL, httpClient: HttpClient)(implicit materializer: ActorMaterializer) = Props(new SlaveCrawler(master, startUrl, httpClient))
+}
+

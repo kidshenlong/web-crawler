@@ -18,6 +18,8 @@ object Main {
 
     val crawler = system.actorOf(Props(new MasterCrawler(domain)), "crawler")
 
+    crawler ! Start
+
     system.actorOf(Props(classOf[Terminator], crawler), "terminator")
 
   }
